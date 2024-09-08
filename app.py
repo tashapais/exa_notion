@@ -3,6 +3,9 @@ import os
 from dotenv import load_dotenv
 from exa_py import Exa
 from notion_client import Client
+import networkx as nx
+from pyvis.network import Network
+import tempfile
 
 # Load environment variables
 load_dotenv()
@@ -61,6 +64,32 @@ def search_interests(query, category=None):
         })
     return results
 
+def create_network_graph(results):
+    G = nx.Graph()
+    
+    # Add nodes for each result
+    for i, result in enumerate(results):
+        G.add_node(i, title=result['title'], url=result['url'])
+    
+    # Add edges based on some similarity metric
+    # This is a simple example; you may want to use a more sophisticated similarity measure
+    for i in range(len(results)):
+        for j in range(i+1, len(results)):
+            # Simple similarity: check if titles share any words
+            words_i = set(results[i]['title'].lower().split())
+            words_j = set(results[j]['title'].lower().split())
+            if words_i.intersection(words_j):
+                G.add_edge(i, j)
+    
+    # Create a Pyvis network from our NetworkX graph
+    net = Network(notebook=True, width="100%", height="500px", bgcolor="#222222", font_color="white")
+    net.from_nx(G)
+    
+    # Generate the HTML file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.html') as tmpfile:
+        net.save_graph(tmpfile.name)
+        return tmpfile.name
+
 # Streamlit UI
 st.title("Notion-Prompted Interest Search")
 
@@ -80,16 +109,25 @@ if notion_page_id:
     with col2:
         st.subheader("Search Results")
         query = st.text_input("Enter your search query")
-        category = st.selectbox("Select a category (optional)", [None, "github", "videos"])
+        category = st.selectbox("Select a category (optional)", [None, "github", "videos", "substack"])
         
         if st.button("Search"):
             if query:
                 results = search_interests(query, category)
+                
+                # Display results
                 for result in results:
                     st.markdown(f"**{result['title']}**")
                     st.write(f"URL: {result['url']}")
                     st.write(f"Highlight: {result['highlight']}")
                     st.markdown("---")
+                
+                # Create and display network graph
+                if len(results) > 1:  # We need at least 2 results to create a graph
+                    st.subheader("Results Network Graph")
+                    graph_html = create_network_graph(results)
+                    st.components.v1.html(open(graph_html, 'r').read(), height=600)
+                    os.unlink(graph_html)  # Delete the temporary file
             else:
                 st.warning("Please enter a search query")
 else:
